@@ -6,7 +6,8 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./server": "./src/index.ts"
+    "./server": "./src/index.ts",
+    "./tui": "./src/tui.tsx"
   },
   "files": [
     "src",
@@ -20,11 +21,23 @@
     "lint": "bun run tsc --noEmit"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.17.0"
+    "@opencode-ai/plugin": "^1.17.8"
+  },
+  "peerDependencies": {
+    "@opentui/solid": "*",
+    "@opentui/core": "*",
+    "solid-js": "*",
+    "@opencode-ai/sdk": "*"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/solid": { "optional": true },
+    "@opentui/core": { "optional": true },
+    "solid-js": { "optional": true },
+    "@opencode-ai/sdk": { "optional": true }
   },
   "devDependencies": {
-    "@types/bun": "^1.2.0",
-    "typescript": "^5.8.0"
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
   },
   "engines": {
     "opencode": ">=0.1.0"

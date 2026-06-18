@@ -12,7 +12,9 @@
     "declarationMap": true,
     "sourceMap": true,
     "types": ["bun-types"],
-    "lib": ["ES2022"]
+    "lib": ["ES2022"],
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid"
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist", "test"]
