@@ -171,6 +171,8 @@ export interface GraphRootInfo {
   name: string
   path: string
   sizeMb: string
+  /** Raw byte size of graph.json; -1 when unknown (stat failure). */
+  sizeBytes: number
   ageMinutes: number
 }
 
@@ -195,10 +197,11 @@ export function discoverGraphRootInfos(directory: string): GraphRootInfo[] {
         name,
         path: dir,
         sizeMb: (stat.size / 1024 / 1024).toFixed(1),
+        sizeBytes: stat.size,
         ageMinutes: Math.round((Date.now() - stat.mtimeMs) / 1000 / 60),
       })
     } catch {
-      roots.push({ name, path: dir, sizeMb: "?", ageMinutes: -1 })
+      roots.push({ name, path: dir, sizeMb: "?", sizeBytes: -1, ageMinutes: -1 })
     }
   }
 
@@ -229,6 +232,22 @@ export function formatAge(minutes: number): string {
   const hours = Math.floor(minutes / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
+}
+
+/**
+ * Format a graph file size for the TUI, scaling the unit so small graphs no
+ * longer render as the misleading "0.0 MB". Prefers the raw byte count when
+ * available (B / KB / MB), otherwise falls back to the precomputed one-decimal
+ * MB string. The "?" sentinel (stat failure) is passed through unchanged.
+ */
+export function formatSize(sizeMb: string, sizeBytes?: number): string {
+  if (sizeMb === "?") return "?"
+  if (typeof sizeBytes === "number" && sizeBytes >= 0) {
+    if (sizeBytes < 1024) return `${sizeBytes} B`
+    if (sizeBytes < 1024 * 1024) return `${Math.round(sizeBytes / 1024)} KB`
+    return `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`
+  }
+  return `${sizeMb} MB`
 }
 
 /**

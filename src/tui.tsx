@@ -16,6 +16,7 @@ import { execSync } from "child_process"
 import {
   discoverGraphRootInfos,
   formatAge,
+  formatSize,
   isStale,
   readGraphStats,
   type GraphRootInfo,
@@ -52,11 +53,12 @@ const cmd = {
   affected: "graphify.affected",
   path: "graphify.path",
   export: "graphify.export",
+  toggle: "graphify.toggle",
 } as const
 
 const allCommands = [
   cmd.status, cmd.build, cmd.query, cmd.update,
-  cmd.explain, cmd.affected, cmd.path, cmd.export,
+  cmd.explain, cmd.affected, cmd.path, cmd.export, cmd.toggle,
 ] as const
 
 /**
@@ -88,12 +90,41 @@ function isRootStale(root: GraphRootInfo): boolean {
   }
 }
 
+/**
+ * Whether the `graphify` CLI is installed and runnable. Synchronous +
+ * defensive: any failure (binary missing) -> false. Probed once at plugin
+ * startup; the version warning graphify prints to stderr is ignored.
+ */
+function isGraphifyInstalled(): boolean {
+  try {
+    execSync("graphify --version", {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 // ── TUI Plugin ──────────────────────────────────────────────────────────
 
 const tui: TuiPlugin = async (api) => {
   const directory = api.state.path.directory
 
   const [roots, setRoots] = createSignal<GraphRootInfo[]>(discoverGraphRootInfos(directory))
+
+  // Sidebar panel collapse state (▼ expanded / ▶ collapsed). Collapsed shows a
+  // one-line summary so the panel takes minimal vertical space.
+  const [collapsed, setCollapsed] = createSignal(false)
+
+  // Whether the graphify CLI is installed — probed once at startup. Drives the
+  // green "OK" / yellow "not installed" badge in the panel header.
+  const [installed] = createSignal(isGraphifyInstalled())
+
+  // Theme colors for the status badge (fall back to hex if theme unavailable).
+  const okColor = () => api.theme?.current?.success ?? "#3fb950"
+  const warnColor = () => api.theme?.current?.warning ?? "#d29922"
 
   // Refresh is event-driven (message.part.updated on build/update/export
   // completion) plus the initial discovery above — no periodic polling (TU-4).
@@ -125,7 +156,7 @@ const tui: TuiPlugin = async (api) => {
           }
 
           const lines = rootList.map((r) =>
-            `● ${r.name} — ${r.sizeMb} MB · ${formatAge(r.ageMinutes)}${isRootStale(r) ? " ⚠ stale" : ""}\n  ${r.path}`
+            `· ${r.name} — ${formatSize(r.sizeMb, r.sizeBytes)} · ${formatAge(r.ageMinutes)}${isRootStale(r) ? " ⚠ stale" : ""}\n  ${r.path}`
           ).join("\n")
 
           api.ui.dialog.replace(() => (
@@ -463,6 +494,17 @@ const tui: TuiPlugin = async (api) => {
           ))
         },
       },
+      {
+        namespace: "palette",
+        name: cmd.toggle,
+        title: "Toggle Graphify panel",
+        desc: "Collapse or expand the Graphify sidebar panel",
+        category: "Graphify",
+        slashName: "graphify-toggle",
+        run() {
+          setCollapsed((c) => !c)
+        },
+      },
     ],
     bindings: api.tuiConfig.keybinds.gather("graphify", allCommands),
   })
@@ -473,18 +515,41 @@ const tui: TuiPlugin = async (api) => {
     order: 80,
     slots: {
       sidebar_content() {
+        const rootList = roots()
+        const count = rootList.length
+        const arrow = collapsed() ? "▸" : "▾"
+        const ok = installed()
         return (
           <box flexDirection="column" paddingLeft={1}>
-            <text bold>{"🧩 Graphify"}</text>
-            <Show
-              when={roots().length > 0}
-              fallback={<text>{"  No graphs detected"}</text>}
-            >
-              <For each={roots()}>
-                {(root) => (
-                  <text>{`  ● ${root.name} · ${root.sizeMb} MB · ${formatAge(root.ageMinutes)}${isRootStale(root) ? " ⚠ stale" : ""}`}</text>
-                )}
-              </For>
+            {/* Clickable header: toggles collapse on click (like the host's
+                MCP/sidebar sections). Status badge is green OK when the
+                graphify CLI is installed, yellow when it is not. */}
+            <box onMouseDown={() => setCollapsed((c) => !c)}>
+              <text bold>
+                <span>{`${arrow} 🧩 Graphify${count > 0 ? ` (${count})` : ""}  `}</span>
+                <span fg={ok ? okColor() : warnColor()}>
+                  {ok ? "OK" : "not installed"}
+                </span>
+              </text>
+            </box>
+            <Show when={!collapsed()}>
+              <Show
+                when={ok}
+                fallback={
+                  <text dim>{"  CLI missing — pip install graphifyy"}</text>
+                }
+              >
+                <Show
+                  when={count > 0}
+                  fallback={<text dim>{"  no graph — /graphify-build"}</text>}
+                >
+                  <For each={rootList}>
+                    {(root) => (
+                      <text>{`  · ${root.name}  ${formatSize(root.sizeMb, root.sizeBytes)} · ${formatAge(root.ageMinutes)}${isRootStale(root) ? " ⚠" : ""}`}</text>
+                    )}
+                  </For>
+                </Show>
+              </Show>
             </Show>
           </box>
         )

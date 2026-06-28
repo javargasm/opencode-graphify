@@ -257,3 +257,57 @@ describe("TUI graphify tools", () => {
     expect(TOOLS.has("read")).toBe(false)
   })
 })
+
+describe("TUI sidebar size + collapse (panel UX)", () => {
+  const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
+
+  it("uses formatSize instead of a hardcoded ' MB' suffix", () => {
+    expect(content).toContain("formatSize")
+    // the old always-MB rendering must be gone
+    expect(content).not.toContain("} MB · ${formatAge")
+  })
+
+  it("has a collapse signal and a collapse/expand arrow", () => {
+    expect(content).toContain("collapsed")
+    expect(content).toMatch(/▾|▸/)
+  })
+
+  it("registers a toggle command in the palette and allCommands", () => {
+    expect(content).toContain('"graphify.toggle"')
+    expect(content).toContain('"graphify-toggle"')
+    const match = content.match(/const allCommands = \[([\s\S]*?)\]/)
+    expect(match).not.toBeNull()
+    expect(match![1]).toContain("cmd.toggle")
+  })
+
+  it("uses a smaller bullet glyph for graph entries (not the large ●)", () => {
+    // sidebar/status entries should use the small middle dot, not the big bullet
+    expect(content).not.toContain("● ${root.name}")
+  })
+})
+
+describe("TUI clickable header + status badge", () => {
+  const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
+
+  it("makes the header clickable via onMouseDown to toggle collapse", () => {
+    expect(content).toContain("onMouseDown")
+    expect(content).toMatch(/onMouseDown=\{[^}]*setCollapsed/)
+  })
+
+  it("probes whether the graphify CLI is installed", () => {
+    expect(content).toContain("isGraphifyInstalled")
+    expect(content).toContain("graphify --version")
+  })
+
+  it("renders a green OK badge when installed and yellow when not", () => {
+    expect(content).toContain('"OK"')
+    expect(content).toContain('"not installed"')
+    // green for OK, yellow for missing — via theme success/warning or hex fallback
+    expect(content).toMatch(/success|#3fb950/)
+    expect(content).toMatch(/warning|#d29922/)
+  })
+
+  it("colors the badge with a fg span", () => {
+    expect(content).toMatch(/<span fg=\{/)
+  })
+})

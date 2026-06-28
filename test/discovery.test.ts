@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { mkdirSync, writeFileSync, rmSync, readFileSync } from "fs"
 import { join } from "path"
-import { discoverGraphRoots, resolveGraphRoot, readBounded, listGraphRootsDescription, readGraphStats, discoverGraphRootInfos, formatAge, isStale } from "../src/discovery"
+import { discoverGraphRoots, resolveGraphRoot, readBounded, listGraphRootsDescription, readGraphStats, discoverGraphRootInfos, formatAge, formatSize, isStale } from "../src/discovery"
 
 const TMP = join(import.meta.dir, ".tmp-discovery")
 
@@ -353,6 +353,31 @@ describe("formatAge", () => {
   it("formats days", () => {
     expect(formatAge(1440)).toBe("1d ago")
     expect(formatAge(4320)).toBe("3d ago")
+  })
+})
+
+// ── formatSize (sidebar size fix) ────────────────────────────────────────────
+
+describe("formatSize", () => {
+  it("returns '?' for the unknown sentinel", () => {
+    expect(formatSize("?")).toBe("?")
+  })
+
+  it("shows KB for small graphs (the 0.0 MB bug)", () => {
+    // A 50 KB graph used to render as '0.0 MB'; now it reads in KB.
+    expect(formatSize("0.0", 51445)).toBe("50 KB")
+  })
+
+  it("shows bytes for tiny files", () => {
+    expect(formatSize("0.0", 512)).toBe("512 B")
+  })
+
+  it("shows MB for large graphs", () => {
+    expect(formatSize("2.4", 2_517_000)).toBe("2.4 MB")
+  })
+
+  it("falls back to the sizeMb string when no byte count is given", () => {
+    expect(formatSize("2.4")).toBe("2.4 MB")
   })
 })
 
