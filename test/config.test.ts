@@ -7,6 +7,11 @@ describe("resolveConfig", () => {
     expect(config).toEqual(DEFAULT_CONFIG)
   })
 
+  it("defaults semanticBackend to 'auto' (CLI auto-detects)", () => {
+    expect(DEFAULT_CONFIG.semanticBackend).toBe("auto")
+    expect(resolveConfig().semanticBackend).toBe("auto")
+  })
+
   it("returns defaults when options is undefined", () => {
     const config = resolveConfig(undefined)
     expect(config).toEqual(DEFAULT_CONFIG)
@@ -44,5 +49,43 @@ describe("resolveConfig", () => {
     const before = { ...DEFAULT_CONFIG }
     resolveConfig({ outputDir: "custom-out" })
     expect(DEFAULT_CONFIG).toEqual(before)
+  })
+
+  // ── forceGraphFirst (T-CS2-1 / B-R3) ──────────────────────────────────────
+
+  it("defaults forceGraphFirst to false", () => {
+    expect(DEFAULT_CONFIG.forceGraphFirst).toBe(false)
+    expect(resolveConfig().forceGraphFirst).toBe(false)
+  })
+
+  it("resolves forceGraphFirst to true when passed true", () => {
+    expect(resolveConfig({ forceGraphFirst: true }).forceGraphFirst).toBe(true)
+  })
+
+  it("ignores a non-boolean forceGraphFirst and falls back to default", () => {
+    expect(resolveConfig({ forceGraphFirst: "yes" }).forceGraphFirst).toBe(false)
+    expect(resolveConfig({ forceGraphFirst: 1 }).forceGraphFirst).toBe(false)
+  })
+
+  // ── apiTimeout (T-CS2-1 / C-F2) ───────────────────────────────────────────
+
+  it("defaults apiTimeout to undefined (flag omitted)", () => {
+    expect(DEFAULT_CONFIG.apiTimeout).toBeUndefined()
+    expect(resolveConfig().apiTimeout).toBeUndefined()
+  })
+
+  it("resolves apiTimeout to a positive integer when provided", () => {
+    expect(resolveConfig({ apiTimeout: 30 }).apiTimeout).toBe(30)
+  })
+
+  it("ignores a non-number apiTimeout and falls back to undefined", () => {
+    expect(resolveConfig({ apiTimeout: "30" }).apiTimeout).toBeUndefined()
+    expect(resolveConfig({ apiTimeout: true }).apiTimeout).toBeUndefined()
+  })
+
+  it("ignores a non-positive or non-integer apiTimeout", () => {
+    expect(resolveConfig({ apiTimeout: 0 }).apiTimeout).toBeUndefined()
+    expect(resolveConfig({ apiTimeout: -5 }).apiTimeout).toBeUndefined()
+    expect(resolveConfig({ apiTimeout: 12.5 }).apiTimeout).toBeUndefined()
   })
 })

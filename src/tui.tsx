@@ -12,73 +12,21 @@
 
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import { createSignal, createMemo, For, Show, onCleanup } from "solid-js"
-
-// ── Discovery ───────────────────────────────────────────────────────────
-
-const GRAPH_FILE = "graphify-out/graph.json"
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", ".hg", ".svn", "dist", "build", "target",
-  ".next", ".nuxt", "__pycache__", ".venv", "venv", "env",
-  ".cache", ".turbo", ".parcel-cache", "coverage", ".pytest_cache",
-  ".ruff_cache", ".mypy_cache", ".tox", ".gradle", "out",
-  ".opencode", ".pi", ".claude",
-])
-
-type GraphRoot = {
-  name: string
-  path: string
-  sizeMb: string
-  ageMinutes: number
-}
-
-function discoverRoots(directory: string): GraphRoot[] {
-  const fs = require("fs")
-  const path = require("path")
-  const roots: GraphRoot[] = []
-
-  const tryAdd = (name: string, dir: string) => {
-    const graphPath = path.join(dir, GRAPH_FILE)
-    if (!fs.existsSync(graphPath)) return
-    try {
-      const stat = fs.statSync(graphPath)
-      roots.push({
-        name,
-        path: dir,
-        sizeMb: (stat.size / 1024 / 1024).toFixed(1),
-        ageMinutes: Math.round((Date.now() - stat.mtimeMs) / 1000 / 60),
-      })
-    } catch {
-      roots.push({ name, path: dir, sizeMb: "?", ageMinutes: -1 })
-    }
-  }
-
-  tryAdd(path.basename(directory), directory)
-
-  try {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
-      if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue
-      tryAdd(entry.name, path.join(directory, entry.name))
-    }
-  } catch {}
-
-  return roots
-}
-
-function formatAge(minutes: number): string {
-  if (minutes < 0) return "unknown"
-  if (minutes < 1) return "just now"
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
+import { execSync } from "child_process"
+import {
+  discoverGraphRootInfos,
+  formatAge,
+  isStale,
+  readGraphStats,
+  type GraphRootInfo,
+} from "./discovery"
 
 // ── Constants ───────────────────────────────────────────────────────────
 
 const GRAPHIFY_TOOLS = new Set([
   "graphify_status", "graphify_build", "graphify_query", "graphify_path",
   "graphify_explain", "graphify_affected", "graphify_update", "graphify_add",
+  "graphify_export", "graphify_diagnose", "graphify_benchmark",
 ])
 
 const TOOL_LABELS: Record<string, string> = {
@@ -90,6 +38,9 @@ const TOOL_LABELS: Record<string, string> = {
   graphify_affected: "Impact analysis done",
   graphify_update: "Graph updated",
   graphify_add: "URL added",
+  graphify_export: "Visualization exported",
+  graphify_diagnose: "Diagnostics ready",
+  graphify_benchmark: "Benchmark complete",
 }
 
 const cmd = {
@@ -97,22 +48,55 @@ const cmd = {
   build: "graphify.build",
   query: "graphify.query",
   update: "graphify.update",
+  explain: "graphify.explain",
+  affected: "graphify.affected",
+  path: "graphify.path",
+  export: "graphify.export",
 } as const
 
-const allCommands = [cmd.status, cmd.build, cmd.query, cmd.update] as const
+const allCommands = [
+  cmd.status, cmd.build, cmd.query, cmd.update,
+  cmd.explain, cmd.affected, cmd.path, cmd.export,
+] as const
+
+/**
+ * Read the current git HEAD commit for a directory (TU-2 staleness).
+ * Synchronous + defensive: any failure (non-git dir, missing git) -> null.
+ */
+function readHeadCommit(dir: string): string | null {
+  try {
+    return execSync("git rev-parse HEAD", {
+      cwd: dir,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim() || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether a graph root is stale: its recorded built_at_commit differs from the
+ * directory's current HEAD. Never throws — any git/stat failure -> not stale.
+ */
+function isRootStale(root: GraphRootInfo): boolean {
+  try {
+    const builtAtCommit = readGraphStats(root.path)?.builtAtCommit ?? null
+    return isStale(builtAtCommit, readHeadCommit(root.path))
+  } catch {
+    return false
+  }
+}
 
 // ── TUI Plugin ──────────────────────────────────────────────────────────
 
 const tui: TuiPlugin = async (api) => {
   const directory = api.state.path.directory
 
-  const [roots, setRoots] = createSignal<GraphRoot[]>(discoverRoots(directory))
+  const [roots, setRoots] = createSignal<GraphRootInfo[]>(discoverGraphRootInfos(directory))
 
-  const refreshInterval = setInterval(() => {
-    setRoots(discoverRoots(directory))
-  }, 30_000)
-
-  api.lifecycle.onDispose(() => clearInterval(refreshInterval))
+  // Refresh is event-driven (message.part.updated on build/update/export
+  // completion) plus the initial discovery above — no periodic polling (TU-4).
 
   const getSessionID = () => {
     const current = api.route.current
@@ -141,7 +125,7 @@ const tui: TuiPlugin = async (api) => {
           }
 
           const lines = rootList.map((r) =>
-            `● ${r.name} — ${r.sizeMb} MB · ${formatAge(r.ageMinutes)}\n  ${r.path}`
+            `● ${r.name} — ${r.sizeMb} MB · ${formatAge(r.ageMinutes)}${isRootStale(r) ? " ⚠ stale" : ""}\n  ${r.path}`
           ).join("\n")
 
           api.ui.dialog.replace(() => (
@@ -288,6 +272,197 @@ const tui: TuiPlugin = async (api) => {
           })
         },
       },
+      {
+        namespace: "palette",
+        name: cmd.explain,
+        title: "Explain a node",
+        desc: "Explain a node and its connections in the graph",
+        category: "Graphify",
+        slashName: "graphify-explain",
+        run() {
+          const sessionID = getSessionID()
+          if (!sessionID) {
+            api.ui.toast({ variant: "warning", message: "Please open a session first to run this command." })
+            return
+          }
+          if (roots().length === 0) {
+            api.ui.toast({ variant: "warning", message: "No graphs found. Use /graphify-build first." })
+            return
+          }
+          api.ui.dialog.replace(() => (
+            <api.ui.DialogPrompt
+              title="Explain Node"
+              placeholder="Node label (e.g. UserService.create)"
+              onConfirm={(node: string) => {
+                api.ui.dialog.clear()
+                const n = node.trim()
+                if (!n) return
+                api.ui.toast({ variant: "info", message: `Explaining: ${n}...`, duration: 4000 })
+                api.client.session.prompt({
+                  sessionID,
+                  parts: [
+                    {
+                      type: "text",
+                      text: `Use the graphify_explain tool to explain: ${n}`,
+                    },
+                  ],
+                }).catch((err) => {
+                  api.ui.toast({
+                    variant: "error",
+                    message: `Failed to start explain: ${err.message || err}`,
+                  })
+                })
+              }}
+              onCancel={() => api.ui.dialog.clear()}
+            />
+          ))
+        },
+      },
+      {
+        namespace: "palette",
+        name: cmd.affected,
+        title: "Impact of a node",
+        desc: "Find what depends on a node (impact radius)",
+        category: "Graphify",
+        slashName: "graphify-affected",
+        run() {
+          const sessionID = getSessionID()
+          if (!sessionID) {
+            api.ui.toast({ variant: "warning", message: "Please open a session first to run this command." })
+            return
+          }
+          if (roots().length === 0) {
+            api.ui.toast({ variant: "warning", message: "No graphs found. Use /graphify-build first." })
+            return
+          }
+          api.ui.dialog.replace(() => (
+            <api.ui.DialogPrompt
+              title="Impact Analysis"
+              placeholder="Node label to assess"
+              onConfirm={(node: string) => {
+                api.ui.dialog.clear()
+                const n = node.trim()
+                if (!n) return
+                api.ui.toast({ variant: "info", message: `Analyzing impact of: ${n}...`, duration: 4000 })
+                api.client.session.prompt({
+                  sessionID,
+                  parts: [
+                    {
+                      type: "text",
+                      text: `Use the graphify_affected tool to assess the impact of: ${n}`,
+                    },
+                  ],
+                }).catch((err) => {
+                  api.ui.toast({
+                    variant: "error",
+                    message: `Failed to start impact analysis: ${err.message || err}`,
+                  })
+                })
+              }}
+              onCancel={() => api.ui.dialog.clear()}
+            />
+          ))
+        },
+      },
+      {
+        namespace: "palette",
+        name: cmd.path,
+        title: "Path between nodes",
+        desc: "Find the shortest path between two nodes",
+        category: "Graphify",
+        slashName: "graphify-path",
+        run() {
+          const sessionID = getSessionID()
+          if (!sessionID) {
+            api.ui.toast({ variant: "warning", message: "Please open a session first to run this command." })
+            return
+          }
+          if (roots().length === 0) {
+            api.ui.toast({ variant: "warning", message: "No graphs found. Use /graphify-build first." })
+            return
+          }
+          api.ui.dialog.replace(() => (
+            <api.ui.DialogPrompt
+              title="Path Between Nodes"
+              placeholder="from → to (e.g. UserService.create → Database.insert)"
+              onConfirm={(value: string) => {
+                api.ui.dialog.clear()
+                const raw = value.trim()
+                if (!raw) return
+                const [from, to] = raw.split(/\s*(?:→|->|,)\s*/)
+                if (!from || !to) {
+                  api.ui.toast({
+                    variant: "warning",
+                    message: "Enter two nodes separated by → (e.g. A → B).",
+                  })
+                  return
+                }
+                api.ui.toast({ variant: "info", message: `Finding path: ${from} → ${to}...`, duration: 4000 })
+                api.client.session.prompt({
+                  sessionID,
+                  parts: [
+                    {
+                      type: "text",
+                      text: `Use the graphify_path tool to find the path from "${from}" to "${to}".`,
+                    },
+                  ],
+                }).catch((err) => {
+                  api.ui.toast({
+                    variant: "error",
+                    message: `Failed to start path search: ${err.message || err}`,
+                  })
+                })
+              }}
+              onCancel={() => api.ui.dialog.clear()}
+            />
+          ))
+        },
+      },
+      {
+        namespace: "palette",
+        name: cmd.export,
+        title: "Export visualization",
+        desc: "Export an interactive HTML visualization of the graph",
+        category: "Graphify",
+        slashName: "graphify-export",
+        run() {
+          const sessionID = getSessionID()
+          if (!sessionID) {
+            api.ui.toast({ variant: "warning", message: "Please open a session first to run this command." })
+            return
+          }
+          if (roots().length === 0) {
+            api.ui.toast({ variant: "warning", message: "No graphs found. Use /graphify-build first." })
+            return
+          }
+          api.ui.dialog.replace(() => (
+            <api.ui.DialogPrompt
+              title="Export Visualization"
+              placeholder="Format: callflow-html (default) or tree"
+              onConfirm={(format: string) => {
+                api.ui.dialog.clear()
+                const fmt = format.trim() === "tree" ? "tree" : "callflow-html"
+                api.ui.toast({ variant: "info", message: `Exporting ${fmt}...`, duration: 4000 })
+                api.client.session.prompt({
+                  sessionID,
+                  parts: [
+                    {
+                      type: "text",
+                      text: `Use the graphify_export tool with format: ${fmt}`,
+                    },
+                  ],
+                }).catch((err) => {
+                  api.ui.toast({
+                    variant: "error",
+                    message: `Failed to start export: ${err.message || err}`,
+                  })
+                })
+              }}
+              onCancel={() => api.ui.dialog.clear()}
+            />
+          ))
+        },
+      },
     ],
     bindings: api.tuiConfig.keybinds.gather("graphify", allCommands),
   })
@@ -307,7 +482,7 @@ const tui: TuiPlugin = async (api) => {
             >
               <For each={roots()}>
                 {(root) => (
-                  <text>{`  ● ${root.name} · ${root.sizeMb} MB · ${formatAge(root.ageMinutes)}`}</text>
+                  <text>{`  ● ${root.name} · ${root.sizeMb} MB · ${formatAge(root.ageMinutes)}${isRootStale(root) ? " ⚠ stale" : ""}`}</text>
                 )}
               </For>
             </Show>
@@ -331,8 +506,8 @@ const tui: TuiPlugin = async (api) => {
         message: part.state.title?.slice(0, 120) || "Done",
         duration: 4000,
       })
-      if (part.tool === "graphify_build" || part.tool === "graphify_update") {
-        setRoots(discoverRoots(directory))
+      if (part.tool === "graphify_build" || part.tool === "graphify_update" || part.tool === "graphify_export") {
+        setRoots(discoverGraphRootInfos(directory))
       }
     }
 

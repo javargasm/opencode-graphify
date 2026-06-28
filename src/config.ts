@@ -10,14 +10,28 @@ export interface GraphifyConfig {
   semanticBackend: string
   reportMaxChars: number
   maxSessionAugments: number
+  /**
+   * When true, the agent-adoption nudge (see shouldNudgeGraphFirst) emits
+   * stronger advisory steering toward the graphify_* tools. Still fail-open —
+   * never blocks or fails the command (spec B-R3).
+   */
+  forceGraphFirst: boolean
+  /**
+   * Optional positive-integer seconds passed through to `graphify extract`
+   * as `--api-timeout <n>`. Undefined → the flag is omitted (CLI default).
+   */
+  apiTimeout?: number
 }
 
 export const DEFAULT_CONFIG: GraphifyConfig = {
   pythonPath: "python3",
   outputDir: "graphify-out",
-  semanticBackend: "gemini",
+  semanticBackend: "auto",
   reportMaxChars: 6000,
   maxSessionAugments: 8,
+  forceGraphFirst: false,
+  // apiTimeout intentionally omitted (undefined) — the flag is not passed
+  // unless the user configures a positive integer.
 }
 
 export function resolveConfig(options?: PluginOptions): GraphifyConfig {
@@ -28,5 +42,10 @@ export function resolveConfig(options?: PluginOptions): GraphifyConfig {
     semanticBackend: typeof options.semanticBackend === "string" ? options.semanticBackend : DEFAULT_CONFIG.semanticBackend,
     reportMaxChars: typeof options.reportMaxChars === "number" ? options.reportMaxChars : DEFAULT_CONFIG.reportMaxChars,
     maxSessionAugments: typeof options.maxSessionAugments === "number" ? options.maxSessionAugments : DEFAULT_CONFIG.maxSessionAugments,
+    forceGraphFirst: typeof options.forceGraphFirst === "boolean" ? options.forceGraphFirst : DEFAULT_CONFIG.forceGraphFirst,
+    apiTimeout:
+      typeof options.apiTimeout === "number" && Number.isInteger(options.apiTimeout) && options.apiTimeout > 0
+        ? options.apiTimeout
+        : DEFAULT_CONFIG.apiTimeout,
   }
 }

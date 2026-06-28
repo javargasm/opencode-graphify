@@ -10,10 +10,9 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
+import { discoverGraphRootInfos, formatAge } from "../src/discovery"
 
 // ── Test helpers ──────────────────────────────────────────────────────
-
-const GRAPH_FILE = "graphify-out/graph.json"
 
 function createTempDir(): string {
   const dir = join(tmpdir(), `opencode-graphify-tui-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`)
@@ -27,67 +26,7 @@ function createGraph(dir: string, content = '{"nodes":[],"links":[]}'): void {
   writeFileSync(join(graphDir, "graph.json"), content)
 }
 
-// ── Discovery logic tests ─────────────────────────────────────────────
-
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", ".hg", ".svn", "dist", "build", "target",
-  ".next", ".nuxt", "__pycache__", ".venv", "venv", "env",
-  ".cache", ".turbo", ".parcel-cache", "coverage", ".pytest_cache",
-  ".ruff_cache", ".mypy_cache", ".tox", ".gradle", "out",
-  ".opencode", ".pi", ".claude",
-])
-
-type GraphRoot = {
-  name: string
-  path: string
-  sizeMb: string
-  ageMinutes: number
-}
-
-function discoverRoots(directory: string): GraphRoot[] {
-  const fs = require("fs") as typeof import("fs")
-  const path = require("path") as typeof import("path")
-  const roots: GraphRoot[] = []
-
-  const tryAdd = (name: string, dir: string) => {
-    const graphPath = path.join(dir, GRAPH_FILE)
-    if (!fs.existsSync(graphPath)) return
-    try {
-      const stat = fs.statSync(graphPath)
-      roots.push({
-        name,
-        path: dir,
-        sizeMb: (stat.size / 1024 / 1024).toFixed(1),
-        ageMinutes: Math.round((Date.now() - stat.mtimeMs) / 1000 / 60),
-      })
-    } catch {
-      roots.push({ name, path: dir, sizeMb: "?", ageMinutes: -1 })
-    }
-  }
-
-  tryAdd(path.basename(directory), directory)
-
-  try {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
-      if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue
-      tryAdd(entry.name, path.join(directory, entry.name))
-    }
-  } catch {}
-
-  return roots
-}
-
-function formatAge(minutes: number): string {
-  if (minutes < 0) return "unknown"
-  if (minutes < 1) return "just now"
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────
+// ── Discovery logic tests (canonical impl in ../src/discovery) ────────
 
 describe("TUI discovery", () => {
   let tempDir: string
@@ -102,7 +41,7 @@ describe("TUI discovery", () => {
 
   it("finds graph in root directory", () => {
     createGraph(tempDir)
-    const roots = discoverRoots(tempDir)
+    const roots = discoverGraphRootInfos(tempDir)
     expect(roots).toHaveLength(1)
     expect(roots[0].path).toBe(tempDir)
     expect(parseFloat(roots[0].sizeMb)).toBeGreaterThanOrEqual(0)
@@ -117,14 +56,14 @@ describe("TUI discovery", () => {
     createGraph(front)
     createGraph(backend)
 
-    const roots = discoverRoots(tempDir)
+    const roots = discoverGraphRootInfos(tempDir)
     expect(roots).toHaveLength(2)
     const names = roots.map((r) => r.name).sort()
     expect(names).toEqual(["backend", "front"])
   })
 
   it("returns empty for directory without graphs", () => {
-    const roots = discoverRoots(tempDir)
+    const roots = discoverGraphRootInfos(tempDir)
     expect(roots).toHaveLength(0)
   })
 
@@ -134,7 +73,7 @@ describe("TUI discovery", () => {
     createGraph(join(tempDir, "node_modules", "some-pkg"))
     createGraph(join(tempDir, ".hidden"))
 
-    const roots = discoverRoots(tempDir)
+    const roots = discoverGraphRootInfos(tempDir)
     expect(roots).toHaveLength(0)
   })
 
@@ -143,7 +82,7 @@ describe("TUI discovery", () => {
     mkdirSync(join(tempDir, "api"), { recursive: true })
     createGraph(join(tempDir, "api"))
 
-    const roots = discoverRoots(tempDir)
+    const roots = discoverGraphRootInfos(tempDir)
     expect(roots).toHaveLength(2)
   })
 })
@@ -223,6 +162,83 @@ describe("TUI uses modern keymap API", () => {
     expect(content).toContain('"graphify.build"')
     expect(content).toContain('"graphify.query"')
     expect(content).toContain('"graphify.update"')
+  })
+})
+
+describe("TUI staleness indicator (T-CS4-2)", () => {
+  const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
+
+  it("imports isStale and readGraphStats from ./discovery", () => {
+    expect(content).toContain("isStale")
+    expect(content).toContain("readGraphStats")
+  })
+
+  it("reads the current git HEAD via rev-parse", () => {
+    expect(content).toContain("rev-parse")
+  })
+
+  it("references built_at_commit / builtAtCommit", () => {
+    expect(content).toMatch(/built_at_commit|builtAtCommit/)
+  })
+
+  it("renders a stale marker in the sidebar", () => {
+    expect(content).toMatch(/⚠|stale/)
+  })
+})
+
+describe("TUI palette parity (T-CS4-3)", () => {
+  const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
+
+  it("defines command name constants for explain, affected, path, export", () => {
+    expect(content).toContain('"graphify.explain"')
+    expect(content).toContain('"graphify.affected"')
+    expect(content).toContain('"graphify.path"')
+    expect(content).toContain('"graphify.export"')
+  })
+
+  it("defines slashNames for the new commands", () => {
+    expect(content).toContain('"graphify-explain"')
+    expect(content).toContain('"graphify-affected"')
+    expect(content).toContain('"graphify-path"')
+    expect(content).toContain('"graphify-export"')
+  })
+
+  it("adds the new commands to allCommands", () => {
+    const match = content.match(/const allCommands = \[([\s\S]*?)\]/)
+    expect(match).not.toBeNull()
+    const list = match![1]
+    expect(list).toContain("cmd.explain")
+    expect(list).toContain("cmd.affected")
+    expect(list).toContain("cmd.path")
+    expect(list).toContain("cmd.export")
+  })
+
+  it("references the native tools for each new command run()", () => {
+    expect(content).toContain("graphify_explain")
+    expect(content).toContain("graphify_affected")
+    expect(content).toContain("graphify_path")
+    expect(content).toContain("graphify_export")
+  })
+})
+
+describe("TUI polling cadence (T-CS4-3 / TU-4)", () => {
+  const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
+
+  it("does not poll every 30 seconds", () => {
+    expect(content).not.toContain("30_000")
+    expect(content).not.toContain("30000")
+  })
+
+  it("either removes setInterval or uses an interval >= 120s", () => {
+    const matches = [...content.matchAll(/setInterval\([^,]*,\s*([\d_]+)/g)]
+    for (const m of matches) {
+      const ms = parseInt(m[1].replace(/_/g, ""), 10)
+      expect(ms).toBeGreaterThanOrEqual(120_000)
+    }
+  })
+
+  it("keeps the event-driven refresh on message.part.updated", () => {
+    expect(content).toContain("message.part.updated")
   })
 })
 
