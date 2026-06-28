@@ -357,6 +357,53 @@ describe("system.transform node-ID guidance", () => {
   })
 })
 
+// ── system.transform always-on orientation (alwaysActive) ───────────────────
+
+describe("system.transform always-active orientation", () => {
+  async function loadHooks(dir: string, options?: any) {
+    const fakeInput: any = {
+      directory: dir,
+      worktree: dir,
+      $: () => ({}),
+      client: {},
+      project: { id: "test", worktree: dir },
+    }
+    return plugin.server(fakeInput, options)
+  }
+
+  it("injects an orientation note even when NO graph exists (default alwaysActive)", async () => {
+    // TMP has no graphify-out/graph.json
+    const hooks = await loadHooks(TMP)
+    const transform = (hooks as any)["experimental.chat.system.transform"]
+    const output: any = { system: [] }
+    await transform({}, output)
+    expect(output.system.length).toBeGreaterThan(0)
+    const text = output.system.join("\n").toLowerCase()
+    expect(text).toContain("graphify")
+    // it should mention how to build a graph since none exists
+    expect(text).toContain("graphify_build")
+  })
+
+  it("injects nothing when no graph exists AND alwaysActive is disabled", async () => {
+    const hooks = await loadHooks(TMP, { alwaysActive: false })
+    const transform = (hooks as any)["experimental.chat.system.transform"]
+    const output: any = { system: [] }
+    await transform({}, output)
+    expect(output.system.length).toBe(0)
+  })
+
+  it("still injects the full graph context when a graph exists", async () => {
+    scaffoldGraph(TMP)
+    const hooks = await loadHooks(TMP)
+    const transform = (hooks as any)["experimental.chat.system.transform"]
+    const output: any = { system: [] }
+    await transform({}, output)
+    const text = output.system.join("\n")
+    expect(text).toContain("knowledge graph")
+    expect(text).toContain("graphify_query")
+  })
+})
+
 // ── tool.execute.before fail-open advisory (T-CS2-2 / B-R2 / B-AC5) ──────────
 
 describe("tool.execute.before nudge hook", () => {

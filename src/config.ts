@@ -21,6 +21,13 @@ export interface GraphifyConfig {
    * as `--api-timeout <n>`. Undefined → the flag is omitted (CLI default).
    */
   apiTimeout?: number
+  /**
+   * When true (default), the system-prompt orientation hook is "always on":
+   * even in repos with NO graph yet, it injects a short note telling the agent
+   * graphify is available and how to build a graph. When false, orientation is
+   * only injected once a graph exists (the original behavior).
+   */
+  alwaysActive: boolean
 }
 
 export const DEFAULT_CONFIG: GraphifyConfig = {
@@ -32,6 +39,7 @@ export const DEFAULT_CONFIG: GraphifyConfig = {
   forceGraphFirst: false,
   // apiTimeout intentionally omitted (undefined) — the flag is not passed
   // unless the user configures a positive integer.
+  alwaysActive: true,
 }
 
 export function resolveConfig(options?: PluginOptions): GraphifyConfig {
@@ -47,5 +55,6 @@ export function resolveConfig(options?: PluginOptions): GraphifyConfig {
       typeof options.apiTimeout === "number" && Number.isInteger(options.apiTimeout) && options.apiTimeout > 0
         ? options.apiTimeout
         : DEFAULT_CONFIG.apiTimeout,
+    alwaysActive: typeof options.alwaysActive === "boolean" ? options.alwaysActive : DEFAULT_CONFIG.alwaysActive,
   }
 }

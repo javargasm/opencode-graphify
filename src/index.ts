@@ -680,7 +680,25 @@ const GraphifyPlugin = async (
 
     "experimental.chat.system.transform": async (_input, output) => {
       refreshRoots()
-      if (graphRoots.size === 0) return
+
+      // Always-on orientation: when no graph exists yet but alwaysActive is set,
+      // inject a short note so the agent knows graphify is available and how to
+      // build a graph. When alwaysActive is false, stay silent until a graph
+      // exists (the original behavior).
+      if (graphRoots.size === 0) {
+        if (!config.alwaysActive) return
+        output.system.push(
+          [
+            "[Graphify available] No knowledge graph has been built for this project yet.",
+            "Graphify provides token-efficient architecture, concept, and cross-file " +
+              "navigation via a precomputed knowledge graph — prefer it over broad raw " +
+              "grep/find sweeps for 'how does X work' / 'what depends on Y' questions.",
+            "Build one to enable the graphify_* query tools:",
+            "  - graphify_build: build the knowledge graph (run once, then graphify_update to refresh)",
+          ].join("\n"),
+        )
+        return
+      }
 
       const parts: string[] = [
         `[Graphify active] This project has ${graphRoots.size} knowledge graph(s).`,

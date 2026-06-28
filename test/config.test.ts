@@ -88,4 +88,20 @@ describe("resolveConfig", () => {
     expect(resolveConfig({ apiTimeout: -5 }).apiTimeout).toBeUndefined()
     expect(resolveConfig({ apiTimeout: 12.5 }).apiTimeout).toBeUndefined()
   })
+
+  // ── alwaysActive (always-on orientation note) ─────────────────────────────
+
+  it("defaults alwaysActive to true", () => {
+    expect(DEFAULT_CONFIG.alwaysActive).toBe(true)
+    expect(resolveConfig().alwaysActive).toBe(true)
+  })
+
+  it("resolves alwaysActive to false when passed false", () => {
+    expect(resolveConfig({ alwaysActive: false }).alwaysActive).toBe(false)
+  })
+
+  it("ignores a non-boolean alwaysActive and falls back to default", () => {
+    expect(resolveConfig({ alwaysActive: "no" }).alwaysActive).toBe(true)
+    expect(resolveConfig({ alwaysActive: 0 }).alwaysActive).toBe(true)
+  })
 })
