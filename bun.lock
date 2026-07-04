@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@javargasm91/opencode-graphify",
+      "name": "@javargasm/opencode-graphify",
       "dependencies": {
         "@opencode-ai/plugin": "^1.17.8",
       },

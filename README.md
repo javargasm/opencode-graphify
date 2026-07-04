@@ -1,4 +1,4 @@
-# @javargasm91/opencode-graphify
+# @javargasm/opencode-graphify
 
 Knowledge graph plugin for [OpenCode](https://opencode.ai). Wraps the [graphify](https://github.com/safishamsi/graphify) CLI as 12 native tools so the agent can build, query, and navigate a persistent knowledge graph of your codebase — with community detection, god nodes, and cross-file relationships.
 
@@ -26,7 +26,7 @@ Add the plugin to your `opencode.json`:
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    "@javargasm91/opencode-graphify"
+    "@javargasm/opencode-graphify"
   ]
 }
 ```
@@ -34,7 +34,7 @@ Add the plugin to your `opencode.json`:
 OpenCode will auto-install the package on startup. You can also install via CLI:
 
 ```bash
-opencode plugin @javargasm91/opencode-graphify
+opencode plugin @javargasm/opencode-graphify
 ```
 
 ### From local source
@@ -71,7 +71,7 @@ Registering the plugin in a project's `opencode.json` only loads it for that pro
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    "@javargasm91/opencode-graphify"
+    "@javargasm/opencode-graphify"
   ]
 }
 ```
@@ -88,7 +88,7 @@ Pass options as a tuple in `opencode.json`:
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    ["@javargasm91/opencode-graphify", {
+    ["@javargasm/opencode-graphify", {
       "semanticBackend": "auto",
       "alwaysActive": true,
       "forceGraphFirst": false,
@@ -115,7 +115,7 @@ To opt out of the always-on note (only orient once a graph exists), set `alwaysA
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    ["@javargasm91/opencode-graphify", { "alwaysActive": false }]
+    ["@javargasm/opencode-graphify", { "alwaysActive": false }]
   ]
 }
 ```
@@ -203,7 +203,7 @@ Patch/minor releases are tagged with `vX.Y.Z`. Pushing a tag triggers `.github/w
 
 Required npm setup:
 
-- Configure npm trusted publishing for `@javargasm91/opencode-graphify` and allow the GitHub workflow `.github/workflows/release.yaml`
+- Configure npm trusted publishing for `@javargasm/opencode-graphify` and allow the GitHub workflow `.github/workflows/release.yaml`
 
 Release commands:
 

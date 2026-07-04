@@ -1,5 +1,5 @@
 {
-  "name": "@javargasm91/opencode-graphify",
+  "name": "@javargasm/opencode-graphify",
   "version": "0.1.0",
   "description": "OpenCode plugin for graphify — knowledge graph tools for codebases",
   "type": "module",
