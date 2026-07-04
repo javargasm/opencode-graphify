@@ -4,3 +4,7 @@ dist/
 .atl/
 graphify-out/
 .opencode/
+.codegraph/
+codegraph.json
+.cursor/
+.agents/

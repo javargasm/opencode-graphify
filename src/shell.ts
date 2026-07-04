@@ -53,7 +53,7 @@ export interface ExecResult {
  * Remove graphify's stderr "skew warning" lines (T-CS3-8).
  *
  * graphify's own skill/package version mismatch emits lines like:
- *   "skill is from graphify 0.8.51, package is 0.9.0. Run 'graphify install' to update."
+ *   "skill is from graphify 0.9.1, package is 0.9.2. Run 'graphify install' to update."
  * optionally prefixed with "warning:". These pollute parsed tool output but are
  * not real errors. This strips ONLY those lines; every other stderr line
  * (including real errors) is preserved verbatim. Pure and defensive — empty

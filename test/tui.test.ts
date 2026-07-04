@@ -7,12 +7,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
-import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "fs"
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { discoverGraphRootInfos, formatAge } from "../src/discovery"
-
-// ── Test helpers ──────────────────────────────────────────────────────
 
 function createTempDir(): string {
   const dir = join(tmpdir(), `opencode-graphify-tui-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`)
@@ -25,8 +23,6 @@ function createGraph(dir: string, content = '{"nodes":[],"links":[]}'): void {
   mkdirSync(graphDir, { recursive: true })
   writeFileSync(join(graphDir, "graph.json"), content)
 }
-
-// ── Discovery logic tests (canonical impl in ../src/discovery) ────────
 
 describe("TUI discovery", () => {
   let tempDir: string
@@ -135,19 +131,12 @@ describe("TUI uses modern keymap API", () => {
     expect(content).not.toContain("api.command.register")
   })
 
-  it("does not import deprecated TuiCommand type", () => {
-    expect(content).not.toContain("TuiCommand")
-  })
-
-  it("uses slashName for command palette slash commands", () => {
+  it("registers a single /graphify command with slashName", () => {
     expect(content).toContain("slashName")
-    expect(content).toContain('"graphify-status"')
-    expect(content).toContain('"graphify-build"')
-    expect(content).toContain('"graphify-query"')
-    expect(content).toContain('"graphify-update"')
+    expect(content).toContain('"graphify"')
   })
 
-  it("registers commands with name, title, desc, category, run", () => {
+  it("registers command with name, title, desc, category, run", () => {
     for (const field of ["name:", "title:", "desc:", "category:", "run()"]) {
       expect(content).toContain(field)
     }
@@ -156,16 +145,9 @@ describe("TUI uses modern keymap API", () => {
   it("uses api.tuiConfig.keybinds.gather for bindings", () => {
     expect(content).toContain("api.tuiConfig.keybinds.gather")
   })
-
-  it("defines command name constants", () => {
-    expect(content).toContain('"graphify.status"')
-    expect(content).toContain('"graphify.build"')
-    expect(content).toContain('"graphify.query"')
-    expect(content).toContain('"graphify.update"')
-  })
 })
 
-describe("TUI staleness indicator (T-CS4-2)", () => {
+describe("TUI staleness indicator", () => {
   const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
 
   it("imports isStale and readGraphStats from ./discovery", () => {
@@ -186,42 +168,107 @@ describe("TUI staleness indicator (T-CS4-2)", () => {
   })
 })
 
-describe("TUI palette parity (T-CS4-3)", () => {
+describe("TUI unified /graphify menu command", () => {
   const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
 
-  it("defines command name constants for explain, affected, path, export", () => {
-    expect(content).toContain('"graphify.explain"')
-    expect(content).toContain('"graphify.affected"')
-    expect(content).toContain('"graphify.path"')
-    expect(content).toContain('"graphify.export"')
+  it("registers a single graphify.menu command", () => {
+    expect(content).toContain('"graphify.menu"')
   })
 
-  it("defines slashNames for the new commands", () => {
-    expect(content).toContain('"graphify-explain"')
-    expect(content).toContain('"graphify-affected"')
-    expect(content).toContain('"graphify-path"')
-    expect(content).toContain('"graphify-export"')
+  it("uses slashName 'graphify' (not graphify-status etc)", () => {
+    expect(content).toContain('slashName: "graphify"')
   })
 
-  it("adds the new commands to allCommands", () => {
-    const match = content.match(/const allCommands = \[([\s\S]*?)\]/)
-    expect(match).not.toBeNull()
-    const list = match![1]
-    expect(list).toContain("cmd.explain")
-    expect(list).toContain("cmd.affected")
-    expect(list).toContain("cmd.path")
-    expect(list).toContain("cmd.export")
+  it("does NOT register individual slash commands for each operation", () => {
+    expect(content).not.toContain('"graphify-status"')
+    expect(content).not.toContain('"graphify-build"')
+    expect(content).not.toContain('"graphify-query"')
+    expect(content).not.toContain('"graphify-update"')
+    expect(content).not.toContain('"graphify-explain"')
+    expect(content).not.toContain('"graphify-affected"')
+    expect(content).not.toContain('"graphify-path"')
+    expect(content).not.toContain('"graphify-export"')
+    expect(content).not.toContain('"graphify-toggle"')
   })
 
-  it("references the native tools for each new command run()", () => {
-    expect(content).toContain("graphify_explain")
-    expect(content).toContain("graphify_affected")
-    expect(content).toContain("graphify_path")
-    expect(content).toContain("graphify_export")
+  it("defines MENU_OPTIONS array with all 13 operations", () => {
+    expect(content).toContain("MENU_OPTIONS")
+    for (const label of [
+      "Status", "Build", "Query", "Update", "Explain",
+      "Affected", "Path", "Export", "Add URL",
+      "Diagnose", "Benchmark", "Save Result", "Toggle Panel",
+    ]) {
+      expect(content).toContain(`label: "${label}"`)
+    }
+  })
+
+  it("opens a DialogSelect modal when the command runs", () => {
+    expect(content).toContain("openGraphifyMenu")
+    expect(content).toContain("api.ui.dialog.replace")
+    expect(content).toContain("DialogSelect")
+  })
+
+  it("maps MENU_OPTIONS into DialogSelect options with title, value, description, disabled, onSelect", () => {
+    expect(content).toContain("MENU_OPTIONS.map")
+    expect(content).toContain("disabled")
+    expect(content).toContain("onSelect")
+  })
+
+  it("uses flat layout (no grouped categories)", () => {
+    expect(content).toContain("flat={true}")
+  })
+
+  it("uses skill/subagent guided prompts instead of direct primary-agent tool calls", () => {
+    expect(content).toContain("graphifySkillPrompt")
+    expect(content).toContain("Use the graphify skill.")
+    expect(content).toContain("Delegate this Graphify operation to the dedicated `graphify` subagent.")
+    expect(content).toContain("The subagent should prefer the native")
+    expect(content).not.toContain("Use the graphify_build tool")
+    expect(content).not.toContain("Use the graphify_query tool")
+  })
+
+  it("each skill-guided operation references its preferred native graphify tool", () => {
+    for (const tool of [
+      "graphify_build", "graphify_query", "graphify_update",
+      "graphify_explain", "graphify_affected", "graphify_path",
+      "graphify_export", "graphify_add", "graphify_diagnose",
+      "graphify_benchmark", "graphify_save_result",
+    ]) {
+      expect(content).toContain(tool)
+    }
   })
 })
 
-describe("TUI polling cadence (T-CS4-3 / TU-4)", () => {
+describe("TUI menu disabled state for graph-less options", () => {
+  const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
+
+  it("marks options that require a graph with requiresGraph: true", () => {
+    expect(content).toContain("requiresGraph")
+    expect(content).toContain("requiresSession")
+  })
+
+  it("marks disabled options with 'needs graph' suffix in description", () => {
+    expect(content).toContain("needs graph")
+  })
+})
+
+describe("TUI export formats in menu", () => {
+  const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
+
+  it("lists all 9 export formats in the Export option description", () => {
+    expect(content).toContain("callflow-html")
+    expect(content).toContain("tree")
+    expect(content).toContain("html")
+    expect(content).toContain("obsidian")
+    expect(content).toContain("wiki")
+    expect(content).toContain("svg")
+    expect(content).toContain("graphml")
+    expect(content).toContain("neo4j")
+    expect(content).toContain("falkordb")
+  })
+})
+
+describe("TUI polling cadence", () => {
   const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
 
   it("does not poll every 30 seconds", () => {
@@ -242,14 +289,16 @@ describe("TUI polling cadence (T-CS4-3 / TU-4)", () => {
   })
 })
 
-describe("TUI graphify tools", () => {
+describe("TUI graphify tools (toast registry)", () => {
   const TOOLS = new Set([
     "graphify_status", "graphify_build", "graphify_query", "graphify_path",
     "graphify_explain", "graphify_affected", "graphify_update", "graphify_add",
+    "graphify_export", "graphify_diagnose", "graphify_benchmark",
+    "graphify_save_result",
   ])
 
-  it("contains all 8 tools", () => {
-    expect(TOOLS.size).toBe(8)
+  it("contains all 12 tools", () => {
+    expect(TOOLS.size).toBe(12)
   })
 
   it("does not match non-graphify tools", () => {
@@ -258,31 +307,36 @@ describe("TUI graphify tools", () => {
   })
 })
 
-describe("TUI sidebar size + collapse (panel UX)", () => {
+describe("TUI sidebar size + collapse", () => {
   const content = readFileSync(join(__dirname, "..", "src", "tui.tsx"), "utf-8")
 
   it("uses formatSize instead of a hardcoded ' MB' suffix", () => {
     expect(content).toContain("formatSize")
-    // the old always-MB rendering must be gone
     expect(content).not.toContain("} MB · ${formatAge")
   })
 
   it("has a collapse signal and a collapse/expand arrow", () => {
     expect(content).toContain("collapsed")
-    expect(content).toMatch(/▾|▸/)
+    expect(content).toMatch(/▼|▶/)
   })
 
-  it("registers a toggle command in the palette and allCommands", () => {
-    expect(content).toContain('"graphify.toggle"')
-    expect(content).toContain('"graphify-toggle"')
-    const match = content.match(/const allCommands = \[([\s\S]*?)\]/)
-    expect(match).not.toBeNull()
-    expect(match![1]).toContain("cmd.toggle")
+  it("uses the same plain chevron header style as native sidebar sections", () => {
+    expect(content).toContain("`${arrow} Graphify")
+    expect(content).not.toContain("`${arrow} 🧩 Graphify")
   })
 
-  it("uses a smaller bullet glyph for graph entries (not the large ●)", () => {
-    // sidebar/status entries should use the small middle dot, not the big bullet
+  it("uses a folder icon for graph entries", () => {
+    expect(content).toContain("📁 ${root.name}")
     expect(content).not.toContain("● ${root.name}")
+    expect(content).not.toContain("· ${root.name}")
+  })
+
+  it("does not add extra left padding to the sidebar section", () => {
+    expect(content).not.toContain('<box flexDirection="column" paddingLeft={1}>')
+  })
+
+  it("renders root metadata on a separate dim line to avoid narrow sidebar wrapping", () => {
+    expect(content).toContain("<text dim>{`    ${formatSize(root.sizeMb, root.sizeBytes)} · ${formatAge(root.ageMinutes)}`}</text>")
   })
 })
 
@@ -302,12 +356,12 @@ describe("TUI clickable header + status badge", () => {
   it("renders a green OK badge when installed and yellow when not", () => {
     expect(content).toContain('"OK"')
     expect(content).toContain('"not installed"')
-    // green for OK, yellow for missing — via theme success/warning or hex fallback
     expect(content).toMatch(/success|#3fb950/)
     expect(content).toMatch(/warning|#d29922/)
   })
 
-  it("colors the badge with a fg span", () => {
-    expect(content).toMatch(/<span fg=\{/)
+  it("colors the badge with a style span (OpenTUI ignores bare `fg` on span)", () => {
+    expect(content).toMatch(/<span style=\{\{\s*fg:/)
+    expect(content).not.toMatch(/<span fg=\{/)
   })
 })

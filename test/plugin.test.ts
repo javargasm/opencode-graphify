@@ -7,7 +7,14 @@ import plugin, {
   shouldNudgeGraphFirst,
   buildDiagnoseCommand,
   buildExportCommand,
+  EXPORT_FORMATS,
   shapeBenchmarkOutput,
+  buildSaveResultCommand,
+  buildMultiRootWarning,
+  createGraphifyAgentConfig,
+  registerGraphifyAgent,
+  wrapToolsWithDelegationGuard,
+  GRAPHIFY_AGENT_NAME,
 } from "../src/index"
 
 const TMP = join(import.meta.dir, ".tmp-plugin")
@@ -36,6 +43,164 @@ describe("plugin export shape", () => {
     // The V1 plugin contract: server(input, options?) => Promise<Hooks>
     // We verify the function exists and has the right arity
     expect(plugin.server.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// ── global graphify subagent registration ───────────────────────────────────
+
+describe("graphify subagent registration", () => {
+  async function loadHooks(dir: string) {
+    const fakeInput: any = {
+      directory: dir,
+      worktree: dir,
+      $: () => ({}),
+      client: {},
+      project: { id: "test", worktree: dir },
+    }
+    return plugin.server(fakeInput)
+  }
+
+  it("registers a global graphify subagent through the config hook", async () => {
+    const hooks = await loadHooks(TMP)
+    const config: any = {}
+
+    await (hooks as any).config(config)
+
+    const agent = config.agent[GRAPHIFY_AGENT_NAME]
+    expect(agent).toBeDefined()
+    expect(agent.mode).toBe("subagent")
+    expect(agent.permission.edit).toBe("deny")
+    expect(agent.tools.graphify_status).toBe(true)
+    expect(agent.tools.graphify_query).toBe(true)
+    expect(agent.prompt).toContain("graphify_status")
+    expect(agent.prompt).toContain("graphify_save_result")
+  })
+
+  it("does not overwrite a user-defined graphify agent", () => {
+    const existing = { mode: "subagent", prompt: "custom graphify runner" }
+    const config: any = { agent: { [GRAPHIFY_AGENT_NAME]: existing } }
+
+    expect(registerGraphifyAgent(config)).toBe(false)
+    expect(config.agent[GRAPHIFY_AGENT_NAME]).toBe(existing)
+  })
+
+  it("creates an agent that prefers native graphify tools over raw shell", () => {
+    const agent = createGraphifyAgentConfig() as any
+    expect(agent.prompt).toContain("Prefer native graphify_* tools")
+    expect(agent.tools.bash).toBe(true)
+    expect(agent.permission.bash["graphify *"]).toBe("allow")
+    expect(agent.permission.bash["*"]).toBe("ask")
+  })
+})
+
+// ── delegation guard (enforceDelegation) ─────────────────────────────────────
+
+describe("wrapToolsWithDelegationGuard", () => {
+  function makeMockTool(name: string) {
+    let called = false
+    const execute = async (_args: any, _ctx: any) => {
+      called = true
+      return { title: `${name} ran`, output: "ok" }
+    }
+    return { def: { description: `mock ${name}`, args: {}, execute }, wasCalled: () => called }
+  }
+
+  it("blocks a non-graphify agent and returns a delegation message", async () => {
+    const { def, wasCalled } = makeMockTool("graphify_query")
+    const wrapped = wrapToolsWithDelegationGuard({ graphify_query: def as any }, true)
+    const result: any = await wrapped.graphify_query.execute({}, { agent: "general" })
+    expect(wasCalled()).toBe(false)
+    expect(result.title).toContain("Delegation required")
+    expect(result.output).toContain("subagent_type: 'graphify'")
+  })
+
+  it("allows the graphify subagent to call through to the original execute", async () => {
+    const { def, wasCalled } = makeMockTool("graphify_query")
+    const wrapped = wrapToolsWithDelegationGuard({ graphify_query: def as any }, true)
+    const result: any = await wrapped.graphify_query.execute({}, { agent: GRAPHIFY_AGENT_NAME })
+    expect(wasCalled()).toBe(true)
+    expect(result.output).toBe("ok")
+  })
+
+  it("passes tools through unwrapped when enforce is false", async () => {
+    const { def, wasCalled } = makeMockTool("graphify_status")
+    const wrapped = wrapToolsWithDelegationGuard({ graphify_status: def as any }, false)
+    const result: any = await wrapped.graphify_status.execute({}, { agent: "general" })
+    expect(wasCalled()).toBe(true)
+    expect(result.output).toBe("ok")
+  })
+
+  it("applies the guard to every graphify_* tool via the plugin tool hook", async () => {
+    const fakeInput: any = {
+      directory: TMP, worktree: TMP, $: () => ({}), client: {},
+      project: { id: "test", worktree: TMP },
+    }
+    const hooks = await plugin.server(fakeInput)
+    const tools = hooks.tool as Record<string, any>
+    for (const name of [
+      "graphify_status", "graphify_query", "graphify_path", "graphify_explain",
+      "graphify_affected", "graphify_update", "graphify_add", "graphify_diagnose",
+      "graphify_export", "graphify_benchmark", "graphify_save_result", "graphify_build",
+    ]) {
+      const result: any = await tools[name].execute({}, { agent: "general" })
+      expect(result.title).toContain("Delegation required")
+    }
+  })
+
+  it("does not guard tools when enforceDelegation is false", async () => {
+    const fakeInput: any = {
+      directory: TMP, worktree: TMP, $: () => ({}), client: {},
+      project: { id: "test", worktree: TMP },
+    }
+    const hooks = await plugin.server(fakeInput, { enforceDelegation: false })
+    const tools = hooks.tool as Record<string, any>
+    // graphify_status catches exec errors, so it returns a normal result —
+    // the guard is NOT the one refusing.
+    const result: any = await tools.graphify_status.execute({}, { agent: "general" })
+    expect(result.title).not.toContain("Delegation required")
+  })
+})
+
+describe("delegation enforcement in tool.execute.before tips", () => {
+  async function loadHooks(dir: string, options?: any) {
+    const fakeInput: any = {
+      directory: dir, worktree: dir, $: () => ({}), client: {},
+      project: { id: "test", worktree: dir },
+    }
+    return plugin.server(fakeInput, options)
+  }
+
+  it("does NOT inject tips for graphify CLI when enforceDelegation is true", async () => {
+    scaffoldGraph(TMP)
+    const hooks = await loadHooks(TMP) // default: enforceDelegation = true
+    const before = (hooks as any)["tool.execute.before"]
+    const cmd = 'graphify query "how does auth work"'
+    const output: any = { args: { command: cmd } }
+    await before({ tool: "shell", args: { command: cmd } }, output)
+    // hook is a no-op when enforcement is on — command untouched
+    expect(output.args.command).toBe(cmd)
+  })
+
+  it("keeps the native-tools tip when enforcement is disabled", async () => {
+    scaffoldGraph(TMP)
+    const hooks = await loadHooks(TMP, { enforceDelegation: false })
+    const before = (hooks as any)["tool.execute.before"]
+    const cmd = 'graphify query "how does auth work"'
+    const output: any = { args: { command: cmd } }
+    await before({ tool: "shell", args: { command: cmd } }, output)
+    expect(output.args.command).toContain("native graphify_* tools")
+    expect(output.args.command).not.toContain("Delegation enforced")
+  })
+
+  it("does NOT inject tips for raw searches when enforceDelegation is true", async () => {
+    scaffoldGraph(TMP)
+    const hooks = await loadHooks(TMP) // default: enforceDelegation = true
+    const before = (hooks as any)["tool.execute.before"]
+    const cmd = "grep -r foo ."
+    const output: any = { args: { command: cmd } }
+    await before({ tool: "shell", args: { command: cmd } }, output)
+    // hook is a no-op when enforcement is on — command untouched
+    expect(output.args.command).toBe(cmd)
   })
 })
 
@@ -134,6 +299,33 @@ describe("buildExtractCommand", () => {
   })
 })
 
+// ── buildMultiRootWarning (graphify_status multi-repo ambiguity UX) ─────────
+
+describe("buildMultiRootWarning", () => {
+  it("returns null for zero roots", () => {
+    expect(buildMultiRootWarning([])).toBeNull()
+  })
+
+  it("returns null for exactly one root (unambiguous)", () => {
+    expect(buildMultiRootWarning(["frontend"])).toBeNull()
+  })
+
+  it("warns and lists every root name when there are 2+ roots", () => {
+    const warning = buildMultiRootWarning(["frontend", "backend"])
+    expect(warning).not.toBeNull()
+    expect(warning).toContain("2 graph roots detected")
+    expect(warning).toContain("frontend")
+    expect(warning).toContain("backend")
+    expect(warning).toContain("Multiple graph roots found")
+  })
+
+  it("warns for 3+ roots too", () => {
+    const warning = buildMultiRootWarning(["a", "b", "c"])
+    expect(warning).toContain("3 graph roots detected")
+    expect(warning).toContain("a, b, c")
+  })
+})
+
 // ── buildDiagnoseCommand (T-CS3-2 / C-T2) ────────────────────────────────────
 
 describe("buildDiagnoseCommand", () => {
@@ -177,14 +369,52 @@ describe("buildExportCommand", () => {
     expect(buildExportCommand("tree")).toBe("graphify tree")
   })
 
-  it("falls back to callflow-html for an unknown format", () => {
-    expect(buildExportCommand("svg" as any)).toBe("graphify export callflow-html")
-    expect(buildExportCommand("obsidian" as any)).toBe("graphify export callflow-html")
+  it("builds `graphify export html` for the html format", () => {
+    expect(buildExportCommand("html")).toBe("graphify export html")
   })
 
-  it("never emits the nonexistent --obsidian/--svg flags", () => {
-    expect(buildExportCommand("tree")).not.toContain("--obsidian")
-    expect(buildExportCommand("callflow-html")).not.toContain("--svg")
+  it("builds `graphify export obsidian` for the obsidian format", () => {
+    expect(buildExportCommand("obsidian")).toBe("graphify export obsidian")
+  })
+
+  it("builds `graphify export wiki` for the wiki format", () => {
+    expect(buildExportCommand("wiki")).toBe("graphify export wiki")
+  })
+
+  it("builds `graphify export svg` for the svg format", () => {
+    expect(buildExportCommand("svg")).toBe("graphify export svg")
+  })
+
+  it("builds `graphify export graphml` for the graphml format", () => {
+    expect(buildExportCommand("graphml")).toBe("graphify export graphml")
+  })
+
+  it("builds `graphify export neo4j` for the neo4j format", () => {
+    expect(buildExportCommand("neo4j")).toBe("graphify export neo4j")
+  })
+
+  it("builds `graphify export falkordb` for the falkordb format", () => {
+    expect(buildExportCommand("falkordb")).toBe("graphify export falkordb")
+  })
+
+  it("falls back to callflow-html for an unknown format", () => {
+    expect(buildExportCommand("unknown" as any)).toBe("graphify export callflow-html")
+    expect(buildExportCommand("pdf" as any)).toBe("graphify export callflow-html")
+  })
+})
+
+describe("EXPORT_FORMATS constant", () => {
+  it("includes all 9 formats (8 export subcommands + tree)", () => {
+    expect(EXPORT_FORMATS).toContain("callflow-html")
+    expect(EXPORT_FORMATS).toContain("tree")
+    expect(EXPORT_FORMATS).toContain("html")
+    expect(EXPORT_FORMATS).toContain("obsidian")
+    expect(EXPORT_FORMATS).toContain("wiki")
+    expect(EXPORT_FORMATS).toContain("svg")
+    expect(EXPORT_FORMATS).toContain("graphml")
+    expect(EXPORT_FORMATS).toContain("neo4j")
+    expect(EXPORT_FORMATS).toContain("falkordb")
+    expect(EXPORT_FORMATS).toHaveLength(9)
   })
 })
 
@@ -263,6 +493,52 @@ describe("buildAddCommand", () => {
   })
 })
 
+// ── graphify_status: multi-root ambiguity warning (integration) ─────────────
+
+describe("graphify_status multi-root warning", () => {
+  async function loadTools(dir: string) {
+    const fakeInput: any = {
+      directory: dir, worktree: dir, $: () => ({}), client: {},
+      project: { id: "test", worktree: dir },
+    }
+    const hooks = await plugin.server(fakeInput, { enforceDelegation: false })
+    return hooks.tool as Record<string, any>
+  }
+
+  it("warns when called without `path` and multiple roots exist", async () => {
+    scaffoldGraph(join(TMP, "frontend"))
+    scaffoldGraph(join(TMP, "backend"))
+    const tools = await loadTools(TMP)
+    const result: any = await tools.graphify_status.execute({}, { agent: "general" })
+    expect(result.output).toContain("2 graph roots detected")
+    expect(result.output).toContain("frontend")
+    expect(result.output).toContain("backend")
+    expect(result.output).toContain("Multiple graph roots found")
+  })
+
+  it("does not warn when a single root exists", async () => {
+    scaffoldGraph(TMP)
+    const tools = await loadTools(TMP)
+    const result: any = await tools.graphify_status.execute({}, { agent: "general" })
+    expect(result.output).not.toContain("graph roots detected")
+  })
+
+  it("does not warn when `path` is explicitly given, even with multiple roots", async () => {
+    scaffoldGraph(join(TMP, "frontend"))
+    scaffoldGraph(join(TMP, "backend"))
+    const tools = await loadTools(TMP)
+    const result: any = await tools.graphify_status.execute({ path: "frontend" }, { agent: "general" })
+    expect(result.output).not.toContain("graph roots detected")
+    expect(result.output).toContain("Target:")
+  })
+
+  it("does not warn when no graphs exist at all", async () => {
+    const tools = await loadTools(TMP)
+    const result: any = await tools.graphify_status.execute({}, { agent: "general" })
+    expect(result.output).not.toContain("graph roots detected")
+  })
+})
+
 // ── graphify_add: no redundant second update (T-CS2-4 / C-AC4) ────────────────
 
 describe("graphify_add structure", () => {
@@ -271,6 +547,102 @@ describe("graphify_add structure", () => {
     // The graphify_add execute body must not chain a separate update call —
     // `graphify add` already updates the graph (C-F1 / PL-7).
     expect(src).not.toContain("graphify update ${shellQuote(graphRoot)}`, graphRoot)")
+  })
+})
+
+// ── buildSaveResultCommand (v0.9.2 reflect loop / save-result) ───────────────
+
+describe("buildSaveResultCommand", () => {
+  it("includes the shell-quoted question and --answer", () => {
+    const cmd = buildSaveResultCommand({
+      question: "how does auth work?",
+      answer: "JWT middleware in src/auth.ts",
+    })
+    expect(cmd).toContain("graphify save-result")
+    expect(cmd).toContain("--question 'how does auth work?'")
+    expect(cmd).toContain("--answer 'JWT middleware in src/auth.ts'")
+  })
+
+  it("uses --answer-file instead of --answer when answerFile is given", () => {
+    const cmd = buildSaveResultCommand({
+      question: "q",
+      answerFile: "/tmp/answer.md",
+    })
+    expect(cmd).toContain("--answer-file '/tmp/answer.md'")
+    expect(cmd).not.toContain(" --answer '")
+  })
+
+  it("throws when neither answer nor answerFile is provided", () => {
+    expect(() => buildSaveResultCommand({ question: "q" })).toThrow(
+      /answer|answer-file/i,
+    )
+  })
+
+  it("throws when both answer and answerFile are provided", () => {
+    expect(() =>
+      buildSaveResultCommand({ question: "q", answer: "a", answerFile: "/tmp/a" }),
+    ).toThrow(/both|exactly one/i)
+  })
+
+  it("appends shell-quoted --type when provided", () => {
+    const cmd = buildSaveResultCommand({
+      question: "q",
+      answer: "a",
+      type: "architecture",
+    })
+    expect(cmd).toContain("--type 'architecture'")
+  })
+
+  it("appends each node label shell-quoted under a single --nodes flag", () => {
+    const cmd = buildSaveResultCommand({
+      question: "q",
+      answer: "a",
+      nodes: ["UserService.create", "Database.insert"],
+    })
+    expect(cmd).toContain("--nodes 'UserService.create' 'Database.insert'")
+  })
+
+  it("omits --nodes when the array is empty", () => {
+    const cmd = buildSaveResultCommand({ question: "q", answer: "a", nodes: [] })
+    expect(cmd).not.toContain("--nodes")
+  })
+
+  it("appends a valid --outcome", () => {
+    expect(
+      buildSaveResultCommand({ question: "q", answer: "a", outcome: "useful" }),
+    ).toContain("--outcome useful")
+    expect(
+      buildSaveResultCommand({ question: "q", answer: "a", outcome: "dead_end" }),
+    ).toContain("--outcome dead_end")
+    expect(
+      buildSaveResultCommand({ question: "q", answer: "a", outcome: "corrected" }),
+    ).toContain("--outcome corrected")
+  })
+
+  it("throws on an invalid outcome before building a command", () => {
+    expect(() =>
+      buildSaveResultCommand({ question: "q", answer: "a", outcome: "great" as any }),
+    ).toThrow(/outcome/i)
+  })
+
+  it("appends shell-quoted --correction and --memory-dir when provided", () => {
+    const cmd = buildSaveResultCommand({
+      question: "q",
+      answer: "a",
+      correction: "actually it's in src/login.ts",
+      memoryDir: "/repo/graphify-out/memory",
+    })
+    expect(cmd).toContain("--correction 'actually it'\\''s in src/login.ts'")
+    expect(cmd).toContain("--memory-dir '/repo/graphify-out/memory'")
+  })
+
+  it("neutralizes injection payloads via shellQuote", () => {
+    const cmd = buildSaveResultCommand({
+      question: "q$(touch /tmp/pwn)",
+      answer: "a; rm -rf /",
+    })
+    expect(cmd).toContain("'q$(touch /tmp/pwn)'")
+    expect(cmd).toContain("'a; rm -rf /'")
   })
 })
 
@@ -382,6 +754,10 @@ describe("system.transform always-active orientation", () => {
     expect(text).toContain("graphify")
     // it should mention how to build a graph since none exists
     expect(text).toContain("graphify_build")
+    expect(text).toContain("dedicated subagent: graphify")
+    expect(text).toContain("enforced")
+    expect(text).toContain("restricted to the dedicated graphify subagent")
+    expect(text).toContain("raw `graphify ...` shell commands")
   })
 
   it("injects nothing when no graph exists AND alwaysActive is disabled", async () => {
@@ -401,13 +777,52 @@ describe("system.transform always-active orientation", () => {
     const text = output.system.join("\n")
     expect(text).toContain("knowledge graph")
     expect(text).toContain("graphify_query")
+    expect(text).toContain("Dedicated subagent: graphify")
+    expect(text).toContain("ENFORCED")
+    expect(text).toContain("restricted to the dedicated")
+    expect(text).toContain("If you are already running as the graphify subagent")
+  })
+
+  it("orients the agent on the full tool surface, not just the read tools", async () => {
+    scaffoldGraph(TMP)
+    const hooks = await loadHooks(TMP)
+    const transform = (hooks as any)["experimental.chat.system.transform"]
+    const output: any = { system: [] }
+    await transform({}, output)
+    const text = output.system.join("\n")
+    // navigation/query surface
+    for (const t of [
+      "graphify_query",
+      "graphify_path",
+      "graphify_explain",
+      "graphify_affected",
+      "graphify_update",
+      "graphify_add",
+      "graphify_diagnose",
+      "graphify_export",
+      "graphify_benchmark",
+    ]) {
+      expect(text).toContain(t)
+    }
+  })
+
+  it("instructs the agent to record outcomes via graphify_save_result (reflect loop)", async () => {
+    scaffoldGraph(TMP)
+    const hooks = await loadHooks(TMP)
+    const transform = (hooks as any)["experimental.chat.system.transform"]
+    const output: any = { system: [] }
+    await transform({}, output)
+    const text = output.system.join("\n")
+    expect(text).toContain("graphify_save_result")
+    // the reflect loop only works if the agent is told WHEN to call it
+    expect(text.toLowerCase()).toMatch(/useful|dead_end|dead end|corrected|outcome/)
   })
 })
 
 // ── tool.execute.before fail-open advisory (T-CS2-2 / B-R2 / B-AC5) ──────────
 
 describe("tool.execute.before nudge hook", () => {
-  async function loadHooks(dir: string) {
+  async function loadHooks(dir: string, options?: any) {
     const fakeInput: any = {
       directory: dir,
       worktree: dir,
@@ -415,12 +830,14 @@ describe("tool.execute.before nudge hook", () => {
       client: {},
       project: { id: "test", worktree: dir },
     }
-    return plugin.server(fakeInput)
+    return plugin.server(fakeInput, options)
   }
 
   it("injects advisory context for a raw search but keeps the command runnable", async () => {
     scaffoldGraph(TMP)
-    const hooks = await loadHooks(TMP)
+    // Advisory tips only fire when enforceDelegation is false — when enforcement
+    // is on (default), the hook is a no-op to avoid confusing the subagent.
+    const hooks = await loadHooks(TMP, { enforceDelegation: false })
     const before = (hooks as any)["tool.execute.before"]
     const output: any = { args: { command: "grep -r foo ." } }
     await before({ tool: "shell", args: { command: "grep -r foo ." } }, output)
@@ -520,5 +937,15 @@ describe("new graphify tools registration", () => {
     const tools = await loadTools()
     expect(tools.graphify_benchmark).toBeDefined()
     expect("path" in tools.graphify_benchmark.args).toBe(true)
+  })
+
+  it("registers graphify_save_result with question/answer/answerFile/nodes/outcome args", async () => {
+    const tools = await loadTools()
+    expect(tools.graphify_save_result).toBeDefined()
+    expect("question" in tools.graphify_save_result.args).toBe(true)
+    expect("answer" in tools.graphify_save_result.args).toBe(true)
+    expect("answerFile" in tools.graphify_save_result.args).toBe(true)
+    expect("nodes" in tools.graphify_save_result.args).toBe(true)
+    expect("outcome" in tools.graphify_save_result.args).toBe(true)
   })
 })

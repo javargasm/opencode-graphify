@@ -28,6 +28,15 @@ export interface GraphifyConfig {
    * only injected once a graph exists (the original behavior).
    */
   alwaysActive: boolean
+  /**
+   * When true (default), graphify_* native tools structurally refuse to
+   * execute when called by any agent other than the dedicated `graphify`
+   * subagent. This forces the primary agent to delegate Graphify work via
+   * the task tool (subagent_type: 'graphify') instead of calling the tools
+   * directly. Set to false to allow direct calls from any agent (advisory
+   * system-prompt text only).
+   */
+  enforceDelegation: boolean
 }
 
 export const DEFAULT_CONFIG: GraphifyConfig = {
@@ -40,6 +49,7 @@ export const DEFAULT_CONFIG: GraphifyConfig = {
   // apiTimeout intentionally omitted (undefined) — the flag is not passed
   // unless the user configures a positive integer.
   alwaysActive: true,
+  enforceDelegation: true,
 }
 
 export function resolveConfig(options?: PluginOptions): GraphifyConfig {
@@ -56,5 +66,6 @@ export function resolveConfig(options?: PluginOptions): GraphifyConfig {
         ? options.apiTimeout
         : DEFAULT_CONFIG.apiTimeout,
     alwaysActive: typeof options.alwaysActive === "boolean" ? options.alwaysActive : DEFAULT_CONFIG.alwaysActive,
+    enforceDelegation: typeof options.enforceDelegation === "boolean" ? options.enforceDelegation : DEFAULT_CONFIG.enforceDelegation,
   }
 }

@@ -1,24 +1,62 @@
 {
-  "name": "opencode-graphify",
+  "name": "@javargasm91/opencode-graphify",
   "version": "0.1.0",
   "description": "OpenCode plugin for graphify — knowledge graph tools for codebases",
   "type": "module",
   "license": "MIT",
-  "exports": {
-    ".": "./src/index.ts",
-    "./server": "./src/index.ts",
-    "./tui": "./src/tui.tsx"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/javargasm/opencode-graphify.git"
   },
+  "homepage": "https://github.com/javargasm/opencode-graphify#readme",
+  "bugs": {
+    "url": "https://github.com/javargasm/opencode-graphify/issues"
+  },
+  "keywords": [
+    "opencode-package",
+    "opencode",
+    "plugin",
+    "graphify",
+    "knowledge-graph",
+    "code-intelligence",
+    "tui"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "default": "./dist/tui.tsx"
+    }
+  },
+  "oc-plugin": [
+    "server",
+    "tui"
+  ],
   "files": [
-    "src",
+    "dist",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
+    "clean": "rm -rf dist",
+    "build:js": "bun build src/index.ts --outdir dist --target node --format esm --external '@opencode-ai/*'",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build": "bun run clean && bun run build:js && bun run build:types && cp src/tui.tsx dist/tui.tsx",
     "typecheck": "bun run tsc --noEmit",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "lint": "bun run tsc --noEmit"
+    "lint": "bun run tsc --noEmit",
+    "prepack": "bun run build",
+    "prepublishOnly": "bun run typecheck && bun run test"
   },
   "dependencies": {
     "@opencode-ai/plugin": "^1.17.8"
@@ -39,7 +77,11 @@
     "@types/bun": "^1.3.14",
     "typescript": "^6.0.3"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "engines": {
-    "opencode": ">=0.1.0"
+    "node": ">=20"
   }
 }

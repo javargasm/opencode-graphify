@@ -104,4 +104,20 @@ describe("resolveConfig", () => {
     expect(resolveConfig({ alwaysActive: "no" }).alwaysActive).toBe(true)
     expect(resolveConfig({ alwaysActive: 0 }).alwaysActive).toBe(true)
   })
+
+  // ── enforceDelegation (structural subagent enforcement) ─────────────────
+
+  it("defaults enforceDelegation to true", () => {
+    expect(DEFAULT_CONFIG.enforceDelegation).toBe(true)
+    expect(resolveConfig().enforceDelegation).toBe(true)
+  })
+
+  it("resolves enforceDelegation to false when passed false", () => {
+    expect(resolveConfig({ enforceDelegation: false }).enforceDelegation).toBe(false)
+  })
+
+  it("ignores a non-boolean enforceDelegation and falls back to default", () => {
+    expect(resolveConfig({ enforceDelegation: "no" }).enforceDelegation).toBe(true)
+    expect(resolveConfig({ enforceDelegation: 0 }).enforceDelegation).toBe(true)
+  })
 })
