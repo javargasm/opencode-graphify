@@ -1,6 +1,6 @@
 {
   "name": "@javargasm/opencode-graphify",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenCode plugin for graphify — knowledge graph tools for codebases",
   "type": "module",
   "license": "MIT",
