@@ -199,11 +199,11 @@ test/
 
 ### Release
 
-Patch/minor releases are tagged with `vX.Y.Z`. Pushing a tag triggers `.github/workflows/release.yaml`, which runs type-check, tests, builds the package, and publishes to npm with provenance through npm trusted publishing.
+Patch/minor releases are tagged with `vX.Y.Z`. Pushing a tag triggers `.github/workflows/release.yml`, which runs type-check, tests, builds the package, and publishes to npm with provenance through npm trusted publishing.
 
 Required npm setup:
 
-- Configure npm trusted publishing for `@javargasm/opencode-graphify` and allow the GitHub workflow `.github/workflows/release.yaml`
+- Configure npm trusted publishing for `@javargasm/opencode-graphify` and allow the GitHub workflow `.github/workflows/release.yml`
 
 Release commands:
 
