@@ -15,19 +15,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      # Trusted Publishing via OIDC requires npm >= 11.5.1. Node 20 ships
-      # with npm 10.x, so upgrade the global npm CLI before publishing.
+      # Trusted Publishing via OIDC requires npm >= 11.5.1 AND Node >= 22.14.0.
+      # Node 24 ships npm 11.x (satisfies both); upgrade to latest npm anyway
+      # to stay ahead of runner drift.
       - name: Upgrade npm
         run: npm install -g npm@latest
 
