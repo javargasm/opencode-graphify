@@ -514,5 +514,5 @@ const tui: TuiPlugin = async (api) => {
 }
 
 
-const plugin = { id: "graphify", tui }
+const plugin = { id: "javargasm-graphify", tui }
 export default plugin

@@ -1153,6 +1153,6 @@ const GraphifyPlugin = async (
 }
 
 export default {
-  id: "graphify",
+  id: "javargasm-graphify",
   server: GraphifyPlugin,
 }

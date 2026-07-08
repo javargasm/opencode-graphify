@@ -105,7 +105,7 @@ describe("TUI module structure", () => {
   const content = readFileSync(tuiPath, "utf-8")
 
   it("exports default with id and tui function", () => {
-    expect(content).toContain('id: "graphify"')
+    expect(content).toContain('id: "javargasm-graphify"')
     expect(content).toContain("tui")
     expect(content).toContain("export default plugin")
   })

@@ -32,7 +32,7 @@ function scaffoldGraph(root: string) {
 describe("plugin export shape", () => {
   it("has a string id", () => {
     expect(typeof plugin.id).toBe("string")
-    expect(plugin.id).toBe("graphify")
+    expect(plugin.id).toBe("javargasm-graphify")
   })
 
   it("exports server as a function", () => {
